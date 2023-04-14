@@ -1,6 +1,7 @@
 # Pint to JUnit XML
 
 Simple converter for using the output of the Prometheus rule linter [pint](https://cloudflare.github.io/pint/) in the JUnit Jenkins plugin.
+The script executes ***pint lint*** and converts the results into a format compatible with the JUnit plugin.
 
 ## Prerequisites
 
