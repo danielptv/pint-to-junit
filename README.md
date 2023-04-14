@@ -18,6 +18,6 @@ stage('Lint Prometheus rules with pint) {
     }
 }
 ````
-Replace ***\<rules>*** with the path to your Prometheus rules and ***\<output file>*** with the path to your output XML file.
+Replace ***\<rules>*** with the path to your Prometheus rules and ***\<output.xml>*** with the path to your output XML file.
 
 **Important:** If you use pattern matching to lint multiple rule files at once make sure to quote the expression with single quotes: **'**\<rules>**'**.
