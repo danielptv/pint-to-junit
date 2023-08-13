@@ -1,11 +1,26 @@
-# Usage: python3 pint_to_junit.py '<path to Prometheus rules>' <output file>
-
 """ System module. """
-import os
-import re
-import subprocess
+import argparse
 import sys
+import re
 import xml.etree.ElementTree as xml
+
+
+class PintFinding:
+    """ Info about a pint finding. """
+
+    def __init__(
+            self,
+            finding_type: str,
+            rule_file: str,
+            check: str,
+            description: str,
+            expression: str
+    ):
+        self.finding_type = finding_type
+        self.rule_file = rule_file
+        self.check = check
+        self.description = description
+        self.expression = expression
 
 
 def clean_input(file_lines: list[str]) -> list[str]:
@@ -17,44 +32,60 @@ def clean_input(file_lines: list[str]) -> list[str]:
     return clean_lines
 
 
-def build_testcases(case_lines: list[str]) -> xml.Element:
-    """ Convert list of strings to JUnit XML testcase. """
-    split = case_lines[0].split(' ')
-    classname = split.pop(0)
-    name = ' '.join(split)
-    type_regex = re.compile(r"\(([^()]+)\)")
-
-    testcase = xml.Element('testcase', {'name': name, 'classname': classname})
-    if 'Bug' in case_lines[0]:
-        failure = xml.Element('failure', {'message': name, 'type': 'failure'})
-        failed_file = '\nFile: ' + classname + '\n'
-        failure_type = 'Type: ' + re.search(type_regex, name).group(1) + '\n'
-        description = name.split('(', maxsplit=1)[0] + '\n'
-        stacktrace = 'Stacktrace: \n'
-        if len(case_lines) - 1 > 0:
-            for i in range(1, len(case_lines)):
-                stacktrace += case_lines[i]
-        failure.text = failed_file + failure_type + description + stacktrace
-        testcase.append(failure)
-
+def build_testcase(finding: PintFinding) -> xml.Element:
+    """ Convert PintFinding to JUnit XML testcase. """
+    testcase = xml.Element(
+        'testcase', {'name': finding.description, 'classname': finding.rule_file})
+    failure_type = "error" if finding.finding_type == "Bug" else "failure"
+    failure = xml.Element(
+        'failure', {'message': finding.description, 'type': failure_type})
+    failure.text = f"""
+        File: {finding.rule_file}
+        Check: {finding.check}
+        {finding.description}
+        Expression: {finding.expression}
+        """
+    testcase.append(failure)
     return testcase
 
 
-def get_testcases(contents_list: list[str]) -> list[xml.Element]:
-    """ Convert string input to JUnit XML testcases. """
-    testcases = []
-    test = []
-    regex = re.compile(r"^level=*")
+def get_findings(contents_list: list[str]):
+    """ Extract the findings from pint input. """
+    findings = []
+    finding = []
+    filtered_contents = [
+        string for string in contents_list if "level=" not in string and string != ""]
 
-    for line in contents_list:
-        if regex.match(line):
-            continue
-        if 'Bug' in line:
-            if len(test) != 0:
-                testcases.append(build_testcases(test))
-            test = []
-        test.append(line)
-    return testcases
+    for line in filtered_contents:
+        if any(keyword in line for keyword in ['Bug', 'Warning', 'Information']):
+            if len(finding) != 0:
+                findings.append(build_finding(finding))
+            finding = []
+        finding.append(line)
+
+    if len(finding) != 0:
+        findings.append(build_finding(finding))
+
+    return findings
+
+
+def build_finding(content_list: list[str]):
+    """ Convert input for a single finding to a PintFinding object. """
+    finding_type = "Bug" if "Bug" in content_list[0] else (
+        "Warning" if "Warning" in content_list[0] else "Information")
+    split = content_list[0].split(' ')
+    rule_file = split.pop(0)
+    description = ' '.join(split)
+    expression = next(
+        (string for string in content_list if "expr" in string), "")
+    if expression:
+        start_index = expression.index("expr:") + len("expr:")
+        expression_trimmed = expression[start_index:]
+    else:
+        expression_trimmed = ""
+    check = next((string for string in content_list if re.match(
+        re.compile(r"\(([^()]+)\)"), string)), "")
+    return PintFinding(finding_type, rule_file, check, description, expression_trimmed)
 
 
 def count_type(element: xml.Element, element_type: str) -> int:
@@ -68,29 +99,33 @@ def count_type(element: xml.Element, element_type: str) -> int:
 
 
 if __name__ == '__main__':
-    args = sys.argv
-    if len(args) != 3:
-        sys.exit("pint directory and output file must be provided.")
-    print('Linting: pint lint ' + args[1])
-    print('Output: ' + args[2])
+    parser = argparse.ArgumentParser(
+        prog='Pint to JUnit Converter',
+        description="Convert pint output to JUnit XML format. "
+    )
+    parser.add_argument(
+        "-p", "--pint", help="Pint output that should be converted", required=True)
+    parser.add_argument("-o", "--output", help="Output file",
+                        default="results.xml")
+    args = parser.parse_args()
+    contents = clean_input(args.pint.split('\n'))
+    pint_findings = get_findings(contents)
 
-    # set explicitly to avoid error
-    os.environ['GOMAXPROCS'] = '1'
-    # run pint
-    result = subprocess.run(['pint', 'lint', args[1]], capture_output=True, text=True, check=False)
-    contents = clean_input(result.stderr.split('\n'))
-    cases = get_testcases(contents)
-    testsuites = xml.Element('testsuites')
-    testsuite = xml.Element('testsuite', {'tests': str(len(cases))})
-    testsuites.append(testsuite)
-    # append testcases to root element
-    for case in cases:
-        testsuite.append(case)
-    # count errors, failures, skipped
-    testsuite.set('errors', str(count_type(testsuite, 'error')))
-    testsuite.set('failures', str(count_type(testsuite, 'failure')))
-    testsuite.set('skipped ', str(count_type(testsuite, 'skipped')))
-    # return file in junit-xml format
-    tree = xml.ElementTree(testsuites)
-    with open(args[2], 'wb') as file:
-        tree.write(file, 'utf-8', True)
+    if len(pint_findings) > 0:
+        testsuites = xml.Element('testsuites')
+        bug_count = sum(
+            1 for obj in pint_findings if obj.finding_type == "Bug")
+        warning_count = sum(
+            1 for obj in pint_findings if obj.finding_type == "Warning")
+        information_count = sum(
+            1 for obj in pint_findings if obj.finding_type == "Information")
+        testsuite = xml.Element('testsuite', {'tests': str(len(pint_findings)), 'error': str(
+            bug_count), 'failure': str(warning_count + information_count), 'skipped': '0'})
+        for case in pint_findings:
+            testsuite.append(build_testcase(case))
+        testsuites.append(testsuite)
+
+        tree = xml.ElementTree(testsuites)
+        with open(args.output, 'wb') as file:
+            tree.write(file, 'utf-8', True)
+        sys.exit(1)
