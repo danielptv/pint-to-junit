@@ -51,7 +51,7 @@ def build_testcase(finding: PintFinding) -> xml.Element:
     return testcase
 
 
-def get_findings(contents_list: list[str]):
+def get_findings(contents_list: list[str]) -> list[PintFinding]:
     """Extract the findings from pint input."""
     findings = []
     finding = []
@@ -72,7 +72,7 @@ def get_findings(contents_list: list[str]):
     return findings
 
 
-def build_finding(content_list: list[str]):
+def build_finding(content_list: list[str]) -> PintFinding:
     """Convert input for a single finding to a PintFinding object."""
     finding_type = (
         "Bug"
