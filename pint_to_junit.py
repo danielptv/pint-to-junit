@@ -108,6 +108,7 @@ if __name__ == '__main__':
     parser.add_argument("-o", "--output", help="Output file",
                         default="results.xml")
     args = parser.parse_args()
+    print(args.pint)
     contents = clean_input(args.pint.split('\n'))
     pint_findings = get_findings(contents)
 
