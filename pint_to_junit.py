@@ -83,8 +83,11 @@ def build_finding(content_list: list[str]):
         expression_trimmed = expression[start_index:]
     else:
         expression_trimmed = ""
-    check = next((string for string in content_list if re.match(
-        re.compile(r"\(([^()]+)\)"), string)), "")
+    matches = re.search(r'\((.*?)\)', content_list[0])
+    if matches:
+        check = matches.group(1)
+    else:
+        check = ""
     return PintFinding(finding_type, rule_file, check, description, expression_trimmed)
 
 
